@@ -2,7 +2,7 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = 'sukanth0021/my-react-app'
+        DOCKER_IMAGE = 'sukanth0021/portfolio'
         DOCKER_TAG = "${env.BUILD_ID}"
         DOCKER_CREDENTIALS_ID = 'docker-hub-sukanth'
         CI = 'true'
@@ -21,7 +21,10 @@ pipeline {
         stage('Install Dependencies') {
             steps {
                 sh '''
+                    # Install with legacy peer deps for React 19 compatibility
                     npm install --legacy-peer-deps
+                    
+                    # Install test dependencies explicitly
                     npm install --save-dev --legacy-peer-deps \
                         @testing-library/react@^14.0.0 \
                         @testing-library/jest-dom@^6.0.0 \
@@ -29,6 +32,9 @@ pipeline {
                         @babel/plugin-proposal-private-property-in-object@^7.21.0 \
                         jest-environment-jsdom@^29.0.0 \
                         jest-junit@^15.0.0
+                    
+                    # Verify installations
+                    npm list @testing-library/react @testing-library/jest-dom
                 '''
             }
         }
@@ -36,13 +42,16 @@ pipeline {
         stage('Run Tests') {
             steps {
                 sh '''
-                    npm test -- --watchAll=false --detectOpenHandles --json --outputFile=test-results.json
-                    npx jest-junit
+                    # Run tests with JUnit output
+                    npm test -- --watchAll=false --detectOpenHandles --ci --reporters=default --reporters=jest-junit
+                    
+                    # Generate coverage reports
+                    npm test -- --coverage --watchAll=false
                 '''
             }
             post {
                 always {
-                    junit 'junit.xml'
+                    junit 'junit.xml'  // Default output location for jest-junit
                     publishHTML target: [
                         allowMissing: true,
                         reportDir: 'coverage/lcov-report',
@@ -54,6 +63,12 @@ pipeline {
         }
 
         stage('Build Project') {
+            when {
+                expression { 
+                    // Only build if tests passed or were skipped
+                    currentBuild.resultIsBetterOrEqualTo('UNSTABLE') 
+                }
+            }
             steps {
                 sh 'npm run build'
                 archiveArtifacts artifacts: 'build/**/*', fingerprint: true
@@ -61,6 +76,11 @@ pipeline {
         }
 
         stage('Build Docker Image') {
+            when {
+                expression { 
+                    currentBuild.resultIsBetterOrEqualTo('UNSTABLE') 
+                }
+            }
             steps {
                 script {
                     dockerImage = docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}", '''
@@ -73,6 +93,11 @@ pipeline {
         }
 
         stage('Push to Docker Hub') {
+            when {
+                expression { 
+                    currentBuild.resultIsBetterOrEqualTo('UNSTABLE') 
+                }
+            }
             steps {
                 script {
                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS_ID) {
@@ -85,17 +110,15 @@ pipeline {
     }
 
     post {
-        success {
-            mail to: 'team@example.com',
-                 subject: "SUCCESS: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Build successful!\n${env.BUILD_URL}"
-        }
-        failure {
-            mail to: 'team@example.com',
-                 subject: "FAILED: ${env.JOB_NAME} #${env.BUILD_NUMBER}",
-                 body: "Build failed!\n${env.BUILD_URL}console"
-        }
         always {
+            // Simple console output instead of email/slack
+            script {
+                if(currentBuild.result == 'SUCCESS') {
+                    echo "Pipeline succeeded! Build URL: ${env.BUILD_URL}"
+                } else {
+                    echo "Pipeline failed! Build URL: ${env.BUILD_URL}console"
+                }
+            }
             cleanWs()
         }
     }
