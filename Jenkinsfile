@@ -2,9 +2,9 @@ pipeline {
     agent any
 
     environment {
-        DOCKER_IMAGE = 'sukanth0021/portfolio'
+        DOCKER_IMAGE = 'sukanth0021/portfolio'  // Your Docker Hub username/repo
         DOCKER_TAG = "${env.BUILD_ID}"
-        DOCKER_CREDENTIALS_ID = 'docker-hub-sukanth'
+        DOCKER_CREDENTIALS_ID = 'docker-hub-sukanth' // Your Jenkins Docker Hub credentials
         CI = 'true'
         NODE_OPTIONS = '--max_old_space_size=4096'
     }
@@ -32,9 +32,6 @@ pipeline {
                         @babel/plugin-proposal-private-property-in-object@^7.21.0 \
                         jest-environment-jsdom@^29.0.0 \
                         jest-junit@^15.0.0
-                    
-                    # Verify installations
-                    npm list @testing-library/react @testing-library/jest-dom
                 '''
             }
         }
@@ -42,16 +39,19 @@ pipeline {
         stage('Run Tests') {
             steps {
                 sh '''
-                    # Run tests with JUnit output
-                    npm test -- --watchAll=false --detectOpenHandles --ci --reporters=default --reporters=jest-junit
+                    # Create test results directory
+                    mkdir -p test-results
                     
-                    # Generate coverage reports
-                    npm test -- --coverage --watchAll=false
+                    # Run tests with JUnit reporting
+                    CI=true npm test -- --watchAll=false --ci --reporters=default --reporters=jest-junit
+                    
+                    # Verify JUnit file exists
+                    ls -la test-results/ || echo "Test results directory not found"
                 '''
             }
             post {
                 always {
-                    junit 'junit.xml'  // Default output location for jest-junit
+                    junit 'test-results/junit.xml' 
                     publishHTML target: [
                         allowMissing: true,
                         reportDir: 'coverage/lcov-report',
@@ -64,10 +64,7 @@ pipeline {
 
         stage('Build Project') {
             when {
-                expression { 
-                    // Only build if tests passed or were skipped
-                    currentBuild.resultIsBetterOrEqualTo('UNSTABLE') 
-                }
+                expression { currentBuild.resultIsBetterOrEqualTo('UNSTABLE') }
             }
             steps {
                 sh 'npm run build'
@@ -77,31 +74,31 @@ pipeline {
 
         stage('Build Docker Image') {
             when {
-                expression { 
-                    currentBuild.resultIsBetterOrEqualTo('UNSTABLE') 
-                }
+                expression { currentBuild.resultIsBetterOrEqualTo('UNSTABLE') }
             }
             steps {
                 script {
-                    dockerImage = docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}", '''
-                        --build-arg NODE_ENV=production 
-                        --build-arg NEXT_PUBLIC_BASE_URL=${YOUR_BASE_URL}
-                        .
-                    ''')
-                }
-            }
-        }
+                    // Create Dockerfile if it doesn't exist
+                    if (!fileExists('Dockerfile')) {
+                        writeFile file: 'Dockerfile', text: """
+                        FROM node:18-alpine as builder
+                        WORKDIR /app
+                        COPY package*.json ./
+                        RUN npm install --legacy-peer-deps
+                        COPY . .
+                        RUN npm run build
 
-        stage('Push to Docker Hub') {
-            when {
-                expression { 
-                    currentBuild.resultIsBetterOrEqualTo('UNSTABLE') 
-                }
-            }
-            steps {
-                script {
+                        FROM nginx:alpine
+                        COPY --from=builder /app/build /usr/share/nginx/html
+                        EXPOSE 80
+                        CMD ["nginx", "-g", "daemon off;"]
+                        """
+                    }
+                    
+                    // Build and push Docker image
                     docker.withRegistry('https://index.docker.io/v1/', DOCKER_CREDENTIALS_ID) {
-                        dockerImage.push("${DOCKER_TAG}")
+                        dockerImage = docker.build("${DOCKER_IMAGE}:${DOCKER_TAG}")
+                        dockerImage.push()
                         dockerImage.push('latest')
                     }
                 }
@@ -111,12 +108,18 @@ pipeline {
 
     post {
         always {
-            // Simple console output instead of email/slack
             script {
                 if(currentBuild.result == 'SUCCESS') {
-                    echo "Pipeline succeeded! Build URL: ${env.BUILD_URL}"
+                    echo """
+                    Pipeline succeeded!
+                    Docker Image: ${DOCKER_IMAGE}:${DOCKER_TAG}
+                    Build URL: ${env.BUILD_URL}
+                    """
                 } else {
-                    echo "Pipeline failed! Build URL: ${env.BUILD_URL}console"
+                    echo """
+                    Pipeline failed!
+                    Build URL: ${env.BUILD_URL}console
+                    """
                 }
             }
             cleanWs()
