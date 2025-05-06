@@ -1,9 +1,14 @@
-module.exports ={
-    reporter:[
-        'default',
-        ['jest-junit',{outputDirectory:'./',outputName:'junit.xml'}]
-    ],
-    collectCoverage:true,
-    coverageReporters:['lcov','text'],
-    testEnvironment:'jsdom'
+// jest.config.js
+module.exports = {
+  reporters: [
+    'default',
+    ['jest-junit', {
+      outputDirectory: '.',
+      outputName: 'junit.xml',
+      includeConsoleOutput: true
+    }]
+  ],
+  testEnvironment: 'jsdom',
+  collectCoverage: true,
+  coverageReporters: ['lcov', 'text']
 };
