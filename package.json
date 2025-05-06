@@ -78,13 +78,14 @@
   },
   "jest": {
     "reporters": [
-      "default",
-      ["jest-junit", {
-        "outputDirectory": "./test-results",
-        "outputName": "junit.xml"
-      }]
-    ],
-    "testEnvironment": "jsdom",
+    "default",
+    ["jest-junit", {
+      "outputDirectory": "test-results",
+      "outputName": "junit.xml",
+      "includeConsoleOutput": true
+    }]
+  ],
+  "testEnvironment": "jsdom",
     "setupFilesAfterEnv": ["<rootDir>/src/setupTests.js"],
     "moduleNameMapper": {
       "^@/(.*)$": "<rootDir>/src/$1",
